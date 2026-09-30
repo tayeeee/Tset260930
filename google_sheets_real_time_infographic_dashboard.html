@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sheets 실시간 인포그래픽 대시보드</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse for robust CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+        }
+        .dark .glass-card {
+            background: rgba(30, 41, 59, 0.75);
+            backdrop-filter: blur(12px);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.5);
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen transition-colors duration-200">
+
+    <!-- Header Bar -->
+    <header class="sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+            
+            <!-- Branding & Title -->
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-xl text-white shadow-lg shadow-blue-500/20">
+                    <i data-lucide="layout-dashboard" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold bg-gradient-to-r from-slate-900 via-blue-800 to-indigo-900 dark:from-white dark:via-slate-200 dark:to-blue-300 bg-clip-text text-transparent">
+                        실시간 데이터 인포그래픽 대시보드
+                    </h1>
+                    <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        <span id="connection-badge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            연결 확인 중...
+                        </span>
+                        <span class="hidden sm:inline">•</span>
+                        <span id="last-updated" class="hidden sm:inline">동기화 대기 중</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Action Controls -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <!-- Auto Refresh Selector -->
+                <div class="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-1 text-xs">
+                    <i data-lucide="timer" class="w-3.5 h-3.5 text-slate-400 ml-1.5 mr-1"></i>
+                    <select id="auto-refresh-select" class="bg-transparent text-slate-700 dark:text-slate-300 focus:outline-none cursor-pointer pr-1">
+                        <option value="0">자동 갱신 꺼짐</option>
+                        <option value="10000">10초 마다</option>
+                        <option value="30000" selected>30초 마다</option>
+                        <option value="60000">1분 마다</option>
+                        <option value="300000">5분 마다</option>
+                    </select>
+                </div>
+
+                <!-- Sync Button -->
+                <button id="btn-sync" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow-md transition-all active:scale-95">
+                    <i data-lucide="refresh-cw" id="sync-icon" class="w-3.5 h-3.5"></i>
+                    <span>동기화</span>
+                </button>
+
+                <!-- Settings / URL Modal Toggle -->
+                <button id="btn-settings" class="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-colors" title="데이터 출처 설정">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Theme Toggle -->
+                <button id="btn-theme" class="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-colors" title="다크/라이트 모드">
+                    <i data-lucide="moon" id="theme-icon" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Controls & Universal Search Bar -->
+        <div class="glass-card rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center">
+            <!-- Search Box -->
+            <div class="relative w-full md:w-80">
+                <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                <input type="text" id="global-search" placeholder="데이터 실시간 검색..." class="w-full pl-9 pr-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 dark:text-slate-100 placeholder-slate-400">
+            </div>
+
+            <!-- Dynamic Category Filter -->
+            <div class="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap">카테고리 필터:</span>
+                <select id="category-filter" class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-300">
+                    <option value="ALL">전체 데이터 보기</option>
+                </select>
+                <button id="btn-export" class="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-medium shadow transition-all whitespace-nowrap">
+                    <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                    <span>CSV 내보내기</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- KPI Infographic Metric Cards Container -->
+        <div id="kpi-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- Dynamic Cards generated by JS -->
+            <div class="glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm animate-pulse">
+                <div class="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2 mb-3"></div>
+                <div class="h-8 bg-slate-300 dark:bg-slate-600 rounded w-3/4 mb-2"></div>
+                <div class="h-3 bg-slate-200 dark:bg-slate-700 rounded w-1/3"></div>
+            </div>
+            <div class="glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm animate-pulse">
+                <div class="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2 mb-3"></div>
+                <div class="h-8 bg-slate-300 dark:bg-slate-600 rounded w-3/4 mb-2"></div>
+                <div class="h-3 bg-slate-200 dark:bg-slate-700 rounded w-1/3"></div>
+            </div>
+            <div class="glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm animate-pulse">
+                <div class="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2 mb-3"></div>
+                <div class="h-8 bg-slate-300 dark:bg-slate-600 rounded w-3/4 mb-2"></div>
+                <div class="h-3 bg-slate-200 dark:bg-slate-700 rounded w-1/3"></div>
+            </div>
+            <div class="glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm animate-pulse">
+                <div class="h-4 bg-slate-200 dark:bg-slate-700 rounded w-1/2 mb-3"></div>
+                <div class="h-8 bg-slate-300 dark:bg-slate-600 rounded w-3/4 mb-2"></div>
+                <div class="h-3 bg-slate-200 dark:bg-slate-700 rounded w-1/3"></div>
+            </div>
+        </div>
+
+        <!-- Interactive Chart Visualizations Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Main Trend Line / Area Chart (Spans 2 columns) -->
+            <div class="lg:col-span-2 glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                            <i data-lucide="trending-up" class="w-4 h-4 text-blue-500"></i>
+                            <span id="trend-chart-title">주요 추이 및 변동 그래프</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">데이터의 시간적/순차적 시각화 분석</p>
+                    </div>
+                    <div class="text-xs px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-lg font-semibold">
+                        시계열 / 연속 데이터
+                    </div>
+                </div>
+                <div class="relative w-full h-72">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Distribution Doughnut Chart (1 column) -->
+            <div class="glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                            <i data-lucide="pie-chart" class="w-4 h-4 text-indigo-500"></i>
+                            <span id="donut-chart-title">카테고리 비중 분포</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">그룹별 비율 구성 요소</p>
+                    </div>
+                </div>
+                <div class="relative w-full h-72 flex items-center justify-center">
+                    <canvas id="donutChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Comparative Bar Chart (Spans 2 columns) -->
+            <div class="lg:col-span-2 glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                            <i data-lucide="bar-chart-3" class="w-4 h-4 text-emerald-500"></i>
+                            <span id="bar-chart-title">항목별 수치 비교</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">상위 항목 간의 정량적 비교</p>
+                    </div>
+                </div>
+                <div class="relative w-full h-72">
+                    <canvas id="barChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Leaderboard / Ranking Infographic Widget -->
+            <div class="glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 class="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                            <i data-lucide="award" class="w-4 h-4 text-amber-500"></i>
+                            <span>상위 랭킹 인포그래픽</span>
+                        </h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">수치 기준 Top Performance</p>
+                    </div>
+                </div>
+                <div id="leaderboard-list" class="space-y-3 overflow-y-auto max-h-72 pr-1">
+                    <!-- Dynamic Items -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Raw Data Table Section -->
+        <div class="glass-card rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h2 class="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <i data-lucide="table" class="w-4 h-4 text-slate-500"></i>
+                        <span>실시간 데이터 시트 상세 보기</span>
+                    </h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">구글 시트에서 원본 동기화된 행별 상세 데이터</p>
+                </div>
+                <div class="text-xs text-slate-500 dark:text-slate-400" id="table-row-count">
+                    총 0개의 레코드
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse" id="data-table">
+                    <thead class="bg-slate-100/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 uppercase tracking-wider font-semibold border-b border-slate-200 dark:border-slate-700">
+                        <tr id="table-head">
+                            <th class="p-3">불러오는 중...</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Table Pagination -->
+            <div class="p-3 bg-slate-50/50 dark:bg-slate-800/30 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-500">페이지 당:</span>
+                    <select id="page-size" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1">
+                        <option value="10">10개</option>
+                        <option value="25" selected>25개</option>
+                        <option value="50">50개</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="prev-page" class="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40">이전</button>
+                    <span id="page-info" class="text-slate-600 dark:text-slate-400">1 / 1</span>
+                    <button id="next-page" class="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40">다음</button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- CSV URL Modal / Settings Drawer -->
+    <div id="settings-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
+        <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full mx-4 p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-3">
+                <h3 class="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                    <i data-lucide="link" class="w-4 h-4 text-blue-500"></i>
+                    <span>구글 시트 CSV 데이터 연동 설정</span>
+                </h3>
+                <button id="close-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                현재 연결된 Google Sheets 게시 주소입니다. 게시된 CSV URL을 변경하거나 다른 스프레드시트를 연동할 수 있습니다.
+            </p>
+
+            <div class="space-y-2">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Google Sheets CSV Published URL</label>
+                <textarea id="csv-url-input" rows="3" class="w-full p-2.5 text-xs bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 font-mono break-all"></textarea>
+            </div>
+
+            <div class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 rounded-xl text-xs text-blue-700 dark:text-blue-300">
+                💡 <b>구글 시트 연동 팁:</b> [파일] &gt; [공유] &gt; [웹에 게시] &gt; [쉼표로 구분된 값(.csv)]을 선택 후 발행된 링크를 입력하세요.
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2">
+                <button id="reset-default-url" class="px-3 py-2 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">기본URL 복원</button>
+                <button id="save-csv-url" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow">저장 및 다시 로드</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DEFAULT_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRKa4A9_7yn3MSpkq95_W8X7UiwhX3Bfoq0TeOjS_V2rSlMhLLo53mkTgVUGaDuqJ3iNpF14H-Ngdtn/pub?gid=790329561&single=true&output=csv";
+        
+        let currentCsvUrl = localStorage.getItem('dashboard_csv_url') || DEFAULT_CSV_URL;
+        let rawData = [];
+        let filteredData = [];
+        let headers = [];
+        let autoRefreshTimer = null;
+        let currentPage = 1;
+        let pageSize = 25;
+
+        // Chart Instances
+        let chartInstances = {
+            trend: null,
+            donut: null,
+            bar: null
+        };
+
+        // DOM Elements
+        const elements = {
+            connectionBadge: document.getElementById('connection-badge'),
+            lastUpdated: document.getElementById('last-updated'),
+            btnSync: document.getElementById('btn-sync'),
+            syncIcon: document.getElementById('sync-icon'),
+            autoRefreshSelect: document.getElementById('auto-refresh-select'),
+            globalSearch: document.getElementById('global-search'),
+            categoryFilter: document.getElementById('category-filter'),
+            kpiGrid: document.getElementById('kpi-grid'),
+            tableHead: document.getElementById('table-head'),
+            tableBody: document.getElementById('table-body'),
+            tableRowCount: document.getElementById('table-row-count'),
+            pageSizeSelect: document.getElementById('page-size'),
+            prevPageBtn: document.getElementById('prev-page'),
+            nextPageBtn: document.getElementById('next-page'),
+            pageInfo: document.getElementById('page-info'),
+            btnSettings: document.getElementById('btn-settings'),
+            settingsModal: document.getElementById('settings-modal'),
+            closeModalBtn: document.getElementById('close-modal'),
+            csvUrlInput: document.getElementById('csv-url-input'),
+            saveCsvUrlBtn: document.getElementById('save-csv-url'),
+            resetDefaultUrlBtn: document.getElementById('reset-default-url'),
+            btnTheme: document.getElementById('btn-theme'),
+            themeIcon: document.getElementById('theme-icon'),
+            btnExport: document.getElementById('btn-export'),
+            leaderboardList: document.getElementById('leaderboard-list')
+        };
+
+        function initTheme() {
+            const isDark = localStorage.getItem('theme') !== 'light';
+            document.documentElement.classList.toggle('dark', isDark);
+            updateThemeIcon(isDark);
+        }
+
+        function updateThemeIcon(isDark) {
+            elements.themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+            lucide.createIcons();
+        }
+
+        elements.btnTheme.addEventListener('click', () => {
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            updateThemeIcon(isDark);
+            // Redraw charts with dark/light options
+            if (rawData.length > 0) renderDashboard();
+        });
+
+        async function fetchCsvData() {
+            setLoadingState(true);
+            elements.csvUrlInput.value = currentCsvUrl;
+
+            try {
+                // Fetch with proxy or direct CORS
+                const response = await fetch(currentCsvUrl, { cache: "no-cache" });
+                if (!response.ok) throw new Error(`HTTP 에러: ${response.status}`);
+                
+                const csvText = await response.text();
+                
+                Papa.parse(csvText, {
+                    header: true,
+                    skipEmptyLines: true,
+                    dynamicTyping: true,
+                    complete: function(results) {
+                        if (results.data && results.data.length > 0) {
+                            rawData = results.data;
+                            headers = results.meta.fields || Object.keys(rawData[0]);
+                            
+                            updateConnectionBadge('connected', '실시간연동 완료');
+                            updateLastUpdatedTime();
+                            populateCategoryFilter();
+                            applyFiltersAndRender();
+                        } else {
+                            throw new Error('CSV 데이터가 비어있습니다.');
+                        }
+                        setLoadingState(false);
+                    },
+                    error: function(err) {
+                        throw new Error(err.message);
+                    }
+                });
+
+            } catch (error) {
+                console.warn('Direct fetch failed, trying proxy...', error);
+                // Fallback attempt using CORS proxy
+                try {
+                    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(currentCsvUrl)}`;
+                    const res = await fetch(proxyUrl);
+                    if (!res.ok) throw new Error("프록시 접근 실패");
+                    const text = await res.text();
+                    
+                    Papa.parse(text, {
+                        header: true,
+                        skipEmptyLines: true,
+                        dynamicTyping: true,
+                        complete: function(results) {
+                            rawData = results.data;
+                            headers = results.meta.fields || Object.keys(rawData[0]);
+                            updateConnectionBadge('connected', '프록시 연동 완료');
+                            updateLastUpdatedTime();
+                            populateCategoryFilter();
+                            applyFiltersAndRender();
+                            setLoadingState(false);
+                        }
+                    });
+                } catch (fallbackError) {
+                    setLoadingState(false);
+                    updateConnectionBadge('error', '연결 실패');
+                    showNotification('데이터를 불러오는데 실패했습니다. URL을 확인해주세요.');
+                }
+            }
+        }
+
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                elements.syncIcon.classList.add('animate-spin');
+                elements.btnSync.disabled = true;
+            } else {
+                elements.syncIcon.classList.remove('animate-spin');
+                elements.btnSync.disabled = false;
+            }
+        }
+
+        function updateConnectionBadge(type, message) {
+            if (type === 'connected') {
+                elements.connectionBadge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300';
+                elements.connectionBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> ${message}`;
+            } else {
+                elements.connectionBadge.className = 'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300';
+                elements.connectionBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> ${message}`;
+            }
+        }
+
+        function updateLastUpdatedTime() {
+            const now = new Date();
+            elements.lastUpdated.textContent = `최근 동기화: ${now.toLocaleTimeString()}`;
+        }
+
+        function populateCategoryFilter() {
+            // Find best categorical column (string types with repeated values)
+            let categoricalCol = findCategoricalColumn();
+            elements.categoryFilter.innerHTML = '<option value="ALL">전체 데이터 보기</option>';
+
+            if (categoricalCol) {
+                const uniqueValues = [...new Set(rawData.map(r => r[categoricalCol]))].filter(Boolean);
+                uniqueValues.slice(0, 30).forEach(val => {
+                    const opt = document.createElement('option');
+                    opt.value = val;
+                    opt.textContent = `${categoricalCol}: ${val}`;
+                    elements.categoryFilter.appendChild(opt);
+                });
+            }
+        }
+
+        function findCategoricalColumn() {
+            if (!headers || headers.length === 0) return null;
+            for (let h of headers) {
+                const sampleVals = rawData.map(r => r[h]).filter(v => v !== null && v !== undefined);
+                const stringVals = sampleVals.filter(v => typeof v === 'string');
+                if (stringVals.length / sampleVals.length > 0.7) {
+                    const uniqueCount = new Set(stringVals).size;
+                    if (uniqueCount > 1 && uniqueCount <= 30) {
+                        return h;
+                    }
+                }
+            }
+            return headers.find(h => typeof rawData[0][h] === 'string') || headers[0];
+        }
+
+        function findNumericColumns() {
+            return headers.filter(h => {
+                const numericVals = rawData.map(r => r[h]).filter(v => typeof v === 'number' && !isNaN(v));
+                return numericVals.length / rawData.length > 0.5;
+            });
+        }
+
+        function applyFiltersAndRender() {
+            const query = elements.globalSearch.value.toLowerCase().trim();
+            const catVal = elements.categoryFilter.value;
+            const catCol = findCategoricalColumn();
+
+            filteredData = rawData.filter(row => {
+                // Category match
+                if (catVal !== 'ALL' && catCol && String(row[catCol]) !== catVal) {
+                    return false;
+                }
+                // Text search match
+                if (query) {
+                    const matches = Object.values(row).some(v => String(v).toLowerCase().includes(query));
+                    if (!matches) return false;
+                }
+                return true;
+            });
+
+            currentPage = 1;
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            renderKPIs();
+            renderCharts();
+            renderLeaderboard();
+            renderTable();
+            lucide.createIcons();
+        }
+
+        function renderKPIs() {
+            const numericCols = findNumericColumns();
+            const totalCount = filteredData.length;
+            
+            elements.kpiGrid.innerHTML = '';
+
+            // Card 1: Total Records
+            elements.kpiGrid.appendChild(createKpiCard(
+                '총 데이터 건수',
+                totalCount.toLocaleString(),
+                '전체 등록 레코드 수',
+                'database',
+                'from-blue-500 to-cyan-500'
+            ));
+
+            if (numericCols.length > 0) {
+                const primaryNumCol = numericCols[0];
+                const values = filteredData.map(r => Number(r[primaryNumCol])).filter(v => !isNaN(v));
+                
+                const sum = values.reduce((a, b) => a + b, 0);
+                const avg = values.length ? (sum / values.length) : 0;
+                const max = values.length ? Math.max(...values) : 0;
+
+                // Card 2: Sum
+                elements.kpiGrid.appendChild(createKpiCard(
+                    `총합 (${primaryNumCol})`,
+                    sum.toLocaleString(undefined, { maximumFractionDigits: 1 }),
+                    '주요 지표 누적 합계',
+                    'calculator',
+                    'from-emerald-500 to-teal-500'
+                ));
+
+                // Card 3: Average
+                elements.kpiGrid.appendChild(createKpiCard(
+                    `평균값 (${primaryNumCol})`,
+                    avg.toLocaleString(undefined, { maximumFractionDigits: 1 }),
+                    '건당 평균 수치',
+                    'trending-up',
+                    'from-indigo-500 to-purple-500'
+                ));
+
+                // Card 4: Max Peak
+                elements.kpiGrid.appendChild(createKpiCard(
+                    `최고 피크값`,
+                    max.toLocaleString(undefined, { maximumFractionDigits: 1 }),
+                    `최대 수치 (${primaryNumCol})`,
+                    'zap',
+                    'from-amber-500 to-orange-500'
+                ));
+            } else {
+                // Secondary non-numeric cards
+                const catCol = findCategoricalColumn();
+                const uniqueCats = catCol ? new Set(filteredData.map(r => r[catCol])).size : 0;
+
+                elements.kpiGrid.appendChild(createKpiCard(
+                    '고유 카테고리',
+                    uniqueCats.toLocaleString(),
+                    '분류 그룹 개수',
+                    'layers',
+                    'from-purple-500 to-pink-500'
+                ));
+            }
+        }
+
+        function createKpiCard(title, value, subtext, iconName, bgGradient) {
+            const card = document.createElement('div');
+            card.className = 'glass-card p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden transition-all hover:scale-[1.02]';
+            card.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">${title}</p>
+                        <h3 class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1.5">${value}</h3>
+                        <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-1">${subtext}</p>
+                    </div>
+                    <div class="p-3 bg-gradient-to-br ${bgGradient} rounded-2xl text-white shadow-md">
+                        <i data-lucide="${iconName}" class="w-6 h-6"></i>
+                    </div>
+                </div>
+            `;
+            return card;
+        }
+
+        function renderCharts() {
+            const isDark = document.documentElement.classList.contains('dark');
+            const textColor = isDark ? '#94a3b8' : '#64748b';
+            const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
+
+            const numericCols = findNumericColumns();
+            const catCol = findCategoricalColumn();
+
+            // 1. Trend Line Chart
+            const ctxTrend = document.getElementById('trendChart').getContext('2d');
+            if (chartInstances.trend) chartInstances.trend.destroy();
+
+            const trendNumCol = numericCols[0] || headers[1] || headers[0];
+            const labels = filteredData.slice(0, 30).map((r, i) => r[headers[0]] || `Row ${i+1}`);
+            const dataTrend = filteredData.slice(0, 30).map(r => Number(r[trendNumCol]) || 0);
+
+            document.getElementById('trend-chart-title').textContent = `${trendNumCol} 변화 추이`;
+
+            chartInstances.trend = new Chart(ctxTrend, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: trendNumCol,
+                        data: dataTrend,
+                        borderColor: '#0ea5e9',
+                        backgroundColor: 'rgba(14, 165, 233, 0.15)',
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor } },
+                        y: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor } }
+                    }
+                }
+            });
+
+            // 2. Donut Distribution Chart
+            const ctxDonut = document.getElementById('donutChart').getContext('2d');
+            if (chartInstances.donut) chartInstances.donut.destroy();
+
+            const donutCatCol = catCol || headers[0];
+            document.getElementById('donut-chart-title').textContent = `${donutCatCol} 그룹 구성비`;
+
+            const catCounts = {};
+            filteredData.forEach(r => {
+                const key = String(r[donutCatCol] || '기타');
+                catCounts[key] = (catCounts[key] || 0) + 1;
+            });
+
+            const donutLabels = Object.keys(catCounts).slice(0, 7);
+            const donutData = donutLabels.map(k => catCounts[k]);
+
+            chartInstances.donut = new Chart(ctxDonut, {
+                type: 'doughnut',
+                data: {
+                    labels: donutLabels,
+                    datasets: [{
+                        data: donutData,
+                        backgroundColor: [
+                            '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'
+                        ],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: textColor, font: { size: 11 } } }
+                    },
+                    cutout: '68%'
+                }
+            });
+
+            // 3. Bar Chart Comparison
+            const ctxBar = document.getElementById('barChart').getContext('2d');
+            if (chartInstances.bar) chartInstances.bar.destroy();
+
+            const barNumCol = numericCols[1] || numericCols[0] || headers[1];
+            document.getElementById('bar-chart-title').textContent = `${barNumCol || '항목'} 비교 그래프`;
+
+            const barSlice = filteredData.slice(0, 12);
+            const barLabels = barSlice.map((r, i) => String(r[donutCatCol] || r[headers[0]] || `Item ${i+1}`));
+            const barDataValues = barSlice.map(r => Number(r[barNumCol]) || 0);
+
+            chartInstances.bar = new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: barLabels,
+                    datasets: [{
+                        label: barNumCol || '수치',
+                        data: barDataValues,
+                        backgroundColor: 'rgba(16, 185, 129, 0.85)',
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: textColor, font: { size: 10 } }, grid: { display: false } },
+                        y: { ticks: { color: textColor, font: { size: 10 } }, grid: { color: gridColor } }
+                    }
+                }
+            });
+        }
+
+        function renderLeaderboard() {
+            const numericCols = findNumericColumns();
+            const primaryNumCol = numericCols[0];
+            const primaryNameCol = headers[0];
+
+            elements.leaderboardList.innerHTML = '';
+
+            if (!filteredData.length) {
+                elements.leaderboardList.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">표시할 데이터가 없습니다.</p>';
+                return;
+            }
+
+            let sorted = [...filteredData];
+            if (primaryNumCol) {
+                sorted.sort((a, b) => (Number(b[primaryNumCol]) || 0) - (Number(a[primaryNumCol]) || 0));
+            }
+
+            const topItems = sorted.slice(0, 5);
+            const maxVal = primaryNumCol ? (Number(topItems[0][primaryNumCol]) || 1) : 1;
+
+            topItems.forEach((item, idx) => {
+                const name = String(item[primaryNameCol] || `Item #${idx+1}`);
+                const val = primaryNumCol ? Number(item[primaryNumCol]) : (idx + 1);
+                const pct = Math.min(100, Math.max(10, (val / maxVal) * 100));
+
+                const badges = ['bg-amber-500', 'bg-slate-400', 'bg-amber-700', 'bg-blue-500', 'bg-slate-500'];
+
+                const row = document.createElement('div');
+                row.className = 'space-y-1';
+                row.innerHTML = `
+                    <div class="flex items-center justify-between text-xs font-medium">
+                        <div class="flex items-center gap-2 truncate">
+                            <span class="w-5 h-5 flex items-center justify-center rounded-full ${badges[idx] || 'bg-slate-500'} text-white font-bold text-[10px]">
+                                ${idx + 1}
+                            </span>
+                            <span class="truncate text-slate-800 dark:text-slate-200">${name}</span>
+                        </div>
+                        <span class="font-bold text-slate-900 dark:text-white">${primaryNumCol ? val.toLocaleString() : ''}</span>
+                    </div>
+                    <div class="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                    </div>
+                `;
+                elements.leaderboardList.appendChild(row);
+            });
+        }
+
+        function renderTable() {
+            // Render Head
+            elements.tableHead.innerHTML = '';
+            headers.forEach(h => {
+                const th = document.createElement('th');
+                th.className = 'p-3 whitespace-nowrap cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700';
+                th.textContent = h;
+                th.addEventListener('click', () => sortTableByColumn(h));
+                elements.tableHead.appendChild(th);
+            });
+
+            // Render Body
+            elements.tableBody.innerHTML = '';
+            elements.tableRowCount.textContent = `총 ${filteredData.length.toLocaleString()}개 행 레코드`;
+
+            const totalPages = Math.ceil(filteredData.length / pageSize) || 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+
+            const startIdx = (currentPage - 1) * pageSize;
+            const pageData = filteredData.slice(startIdx, startIdx + pageSize);
+
+            if (pageData.length === 0) {
+                elements.tableBody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center py-6 text-slate-400">검색 조건에 맞는 데이터가 없습니다.</td></tr>`;
+            } else {
+                pageData.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors';
+                    headers.forEach(h => {
+                        const td = document.createElement('td');
+                        td.className = 'p-3 whitespace-nowrap border-b border-slate-100 dark:border-slate-800/60';
+                        const val = row[h];
+                        td.textContent = (val !== null && val !== undefined) ? String(val) : '-';
+                        tr.appendChild(td);
+                    });
+                    elements.tableBody.appendChild(tr);
+                });
+            }
+
+            // Pagination Controls
+            elements.pageInfo.textContent = `${currentPage} / ${totalPages}`;
+            elements.prevPageBtn.disabled = (currentPage === 1);
+            elements.nextPageBtn.disabled = (currentPage === totalPages);
+        }
+
+        let sortAsc = true;
+        function sortTableByColumn(col) {
+            sortAsc = !sortAsc;
+            filteredData.sort((a, b) => {
+                let valA = a[col];
+                let valB = b[col];
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return sortAsc ? valA - valB : valB - valA;
+                }
+                return sortAsc ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+            });
+            renderTable();
+        }
+
+        elements.btnSync.addEventListener('click', fetchCsvData);
+
+        elements.globalSearch.addEventListener('input', applyFiltersAndRender);
+        elements.categoryFilter.addEventListener('change', applyFiltersAndRender);
+
+        elements.pageSizeSelect.addEventListener('change', (e) => {
+            pageSize = parseInt(e.target.value);
+            currentPage = 1;
+            renderTable();
+        });
+
+        elements.prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+        });
+
+        elements.nextPageBtn.addEventListener('click', () => {
+            const totalPages = Math.ceil(filteredData.length / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderTable();
+            }
+        });
+
+        // Auto Refresh Selector Listener
+        elements.autoRefreshSelect.addEventListener('change', (e) => {
+            const interval = parseInt(e.target.value);
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            if (interval > 0) {
+                autoRefreshTimer = setInterval(fetchCsvData, interval);
+                showNotification(`자동 갱신 주기: ${interval / 1000}초로 설정되었습니다.`);
+            }
+        });
+
+        // Modal triggers
+        elements.btnSettings.addEventListener('click', () => {
+            elements.settingsModal.classList.remove('hidden');
+            setTimeout(() => elements.settingsModal.classList.remove('opacity-0'), 10);
+        });
+
+        elements.closeModalBtn.addEventListener('click', closeModal);
+
+        function closeModal() {
+            elements.settingsModal.classList.add('opacity-0');
+            setTimeout(() => elements.settingsModal.classList.add('hidden'), 200);
+        }
+
+        elements.saveCsvUrlBtn.addEventListener('click', () => {
+            const newUrl = elements.csvUrlInput.value.trim();
+            if (newUrl) {
+                currentCsvUrl = newUrl;
+                localStorage.setItem('dashboard_csv_url', currentCsvUrl);
+                closeModal();
+                fetchCsvData();
+            }
+        });
+
+        elements.resetDefaultUrlBtn.addEventListener('click', () => {
+            currentCsvUrl = DEFAULT_CSV_URL;
+            elements.csvUrlInput.value = DEFAULT_CSV_URL;
+            localStorage.setItem('dashboard_csv_url', DEFAULT_CSV_URL);
+            closeModal();
+            fetchCsvData();
+        });
+
+        // CSV Export functionality
+        elements.btnExport.addEventListener('click', () => {
+            if (!filteredData.length) return;
+            const csv = Papa.unparse(filteredData);
+            const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `dashboard_data_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        function showNotification(msg) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-4 right-4 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-xl z-50 transition-opacity duration-300';
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initTheme();
+            fetchCsvData();
+            // Default 30s auto-refresh
+            autoRefreshTimer = setInterval(fetchCsvData, 30000);
+        });
+    </script>
+</body>
+</html>
